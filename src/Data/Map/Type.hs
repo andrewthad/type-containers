@@ -27,8 +27,6 @@ module Data.Map.Type
   -- * Insertion
   , insert
   , insertWith
-  , insertWithKey
-  , insertLookupWithKey
  
   -- * Difference
   , difference
@@ -36,7 +34,6 @@ module Data.Map.Type
   -- * Delete/Update
   , delete
   , adjust
-  , adjustWithKey
   , update
   ) where
 
@@ -51,12 +48,6 @@ import Type.Reflection.Unsafe (typeRepFingerprint)
 import qualified Data.Map.Strict as M
 
 -- | Map from 'TypeRep' a to `f a`.
---   This type is /not/ safe if `a ~ Void`.
---
---   This type is /not/ safe for all GADTs:
---
---   If you match on `f Any` to get an `f Int`,
---   you have a proof that `Any ~ Int`.
 newtype Map f = Map (M.Map Fingerprint (f Any))
 
 type role Map nominal
@@ -64,7 +55,7 @@ type role Map nominal
 infixl 9 !,!?,\\
 
 (!) :: forall f a. Map f -> TypeRep a -> f a
-(Map mf) ! rep = anyToA (mf M.! (typeRepFingerprint rep))
+(Map mf) ! rep = fromAny (mf M.! (typeRepFingerprint rep))
 {-# INLINE (!) #-}
 
 (!?) :: Map f -> TypeRep a -> Maybe (f a)
@@ -86,89 +77,68 @@ size (Map m) = M.size m
 lookup :: TypeRep a -> Map f -> Maybe (f a)
 lookup typ (Map m) = case M.lookup (typeRepFingerprint typ) m of
   Nothing -> Nothing
-  Just x -> Just (anyToA x)
-{-# INLINABLE lookup #-}
+  Just x -> Just (fromAny x)
+{-# INLINE lookup #-}
 
 member :: TypeRep a -> Map f -> Bool
 member rep (Map m) = M.member (typeRepFingerprint rep) m
-{-# INLINABLE member #-}
+{-# INLINE member #-}
 
 notMember :: TypeRep a -> Map f -> Bool
 notMember rep mf = not $ member rep mf
-{-# INLINABLE notMember #-}
+{-# INLINE notMember #-}
 
 findWithDefault :: f a -> TypeRep a -> Map f -> f a
 findWithDefault def rep mf = fromMaybe def (lookup rep mf)
-{-# INLINABLE findWithDefault #-}
+{-# INLINE findWithDefault #-}
 
 empty :: Map f
 empty = Map M.empty
 {-# INLINE empty #-}
 
 singleton :: TypeRep a -> f a -> Map f
-singleton rep v = Map (M.singleton (typeRepFingerprint rep) (aToAny v))
+singleton rep v = Map (M.singleton (typeRepFingerprint rep) (toAny v))
 {-# INLINE singleton #-}
 
 insert :: TypeRep a -> f a -> Map f -> Map f
-insert rep x (Map m) = Map (M.insert (typeRepFingerprint rep) (aToAny x) m)
-{-# INLINABLE insert #-}
+insert rep x (Map m) = Map (M.insert (typeRepFingerprint rep) (toAny x) m)
+{-# INLINE insert #-}
 
 insertWith :: (f a -> f a -> f a) -> TypeRep a -> f a -> Map f -> Map f
-insertWith f rep x (Map m) = Map (M.insertWith (a3ToAny f) (typeRepFingerprint rep) (aToAny x) m)
-
-insertWithKey :: (TypeRep a -> f a -> f a -> f a) -> TypeRep a -> f a -> Map f -> Map f
-insertWithKey f rep x (Map m) = Map (M.insertWithKey (a3ToAnyWithFingerprint f) (typeRepFingerprint rep) (aToAny x) m)
-
-insertLookupWithKey :: (TypeRep a -> f a -> f a -> f a) -> TypeRep a -> f a -> Map f -> (Maybe (f a), Map f)
-insertLookupWithKey f rep x (Map m) = k (M.insertLookupWithKey (a3ToAnyWithFingerprint f) (typeRepFingerprint rep) (aToAny x) m)
-  where
-    k (p, y) = case p of
-      Nothing -> (Nothing, Map y)
-      Just q  -> (Just (anyToA q), Map y)
+insertWith f rep x (Map m) = Map (M.insertWith (toAny2 f) (typeRepFingerprint rep) (toAny x) m)
 
 difference :: Map f -> Map f -> Map f
 difference (Map m1) (Map m2) = Map (M.difference m1 m2)
-{-# INLINABLE difference #-}
+{-# INLINE difference #-}
 
 delete :: TypeRep a -> Map f -> Map f
 delete rep (Map m) = Map (M.delete (typeRepFingerprint rep) m)
-{-# INLINABLE delete #-}
+{-# INLINE delete #-}
 
 adjust :: (f a -> f a) -> TypeRep a -> Map f -> Map f
-adjust f rep (Map m) = Map (M.adjust (a2ToAny f) (typeRepFingerprint rep) m)
-{-# INLINABLE adjust #-}
-
-adjustWithKey :: (TypeRep a -> f a -> f a) -> TypeRep a -> Map f -> Map f
-adjustWithKey f rep (Map m) = Map (M.adjustWithKey (a2ToAnyWithFingerprint f) (typeRepFingerprint rep) m) 
-{-# INLINABLE adjustWithKey #-}
+adjust f rep (Map m) = Map (M.adjust (toAny1 f) (typeRepFingerprint rep) m)
+{-# INLINE adjust #-}
 
 update :: (f a -> Maybe (f a)) -> TypeRep a -> Map f -> Map f
 update f rep (Map m) = Map (M.update (aToMaybeAny f) (typeRepFingerprint rep) m)
-{-# INLINABLE update #-}
+{-# INLINE update #-}
 
 aToMaybeAny :: forall f a. (f a -> Maybe (f a)) -> (f Any -> Maybe (f Any))
 aToMaybeAny = unsafeCoerce
 {-# INLINE aToMaybeAny #-}
 
-aToAny :: forall f a. f a -> f Any
-aToAny = unsafeCoerce
-{-# INLINE aToAny #-}
+toAny :: forall f a. f a -> f Any
+toAny = unsafeCoerce
+{-# INLINE toAny #-}
 
-anyToA :: forall f a. f Any -> f a
-anyToA = unsafeCoerce
-{-# INLINE anyToA #-}
+fromAny :: forall f a. f Any -> f a
+fromAny = unsafeCoerce
+{-# INLINE fromAny #-}
 
-a2ToAny :: forall f a. (f a -> f a) -> (f Any -> f Any)
-a2ToAny = unsafeCoerce
+toAny1 :: forall f a. (f a -> f a) -> (f Any -> f Any)
+toAny1 = unsafeCoerce
+{-# INLINE toAny1 #-}
 
-a3ToAny :: forall f a. (f a -> f a -> f a) -> (f Any -> f Any -> f Any)
-a3ToAny f = unsafeCoerce f
-{-# INLINE a3ToAny #-}
-
-a2ToAnyWithFingerprint :: (TypeRep a -> f a -> f a) -> (Fingerprint -> f Any -> f Any)
-a2ToAnyWithFingerprint = unsafeCoerce
-{-# INLINE a2ToAnyWithFingerprint #-}
-
-a3ToAnyWithFingerprint :: (TypeRep a -> f a -> f a -> f a) -> (Fingerprint -> f Any -> f Any -> f Any)
-a3ToAnyWithFingerprint = unsafeCoerce
-{-# INLINE a3ToAnyWithFingerprint #-}
+toAny2 :: forall f a. (f a -> f a -> f a) -> (f Any -> f Any -> f Any)
+toAny2 f = unsafeCoerce f
+{-# INLINE toAny2 #-}
